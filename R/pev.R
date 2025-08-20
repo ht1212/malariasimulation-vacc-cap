@@ -9,28 +9,27 @@
 #' @param correlations correlation parameters
 #' @noRd
 create_epi_pev_process <- function(
-  variables,
-  events,
-  parameters,
-  correlations,
-  coverages,
-  timesteps
-  ) {
+    variables,
+    events,
+    parameters,
+    correlations,
+    coverages,
+    timesteps) {
   function(timestep) {
     timestep_index <- match_timestep(ts = timesteps, t = timestep)
-    if(timestep_index == 0){
+    if (timestep_index == 0) {
       return()
     }
     coverage <- coverages[timestep_index]
-    if(coverage == 0){
+    if (coverage == 0) {
       return()
     }
-    
+
     to_vaccinate <- variables$birth$get_index_of(
       set = timestep - parameters$pev_epi_age
     )
 
-    #ignore those who are scheduled for mass vaccination
+    # ignore those who are scheduled for mass vaccination
     if (!is.null(events$mass_pev_doses)) {
       to_vaccinate <- to_vaccinate$and(
         events$mass_pev_doses[[1]]$get_scheduled()$not()
@@ -50,7 +49,7 @@ create_epi_pev_process <- function(
     target <- target[
       sample_intervention(
         target,
-       'pev',
+        "pev",
         coverage,
         correlations
       )
@@ -79,11 +78,10 @@ create_epi_pev_process <- function(
 #' @param correlations correlation parameters
 #' @noRd
 create_mass_pev_listener <- function(
-  variables,
-  events,
-  parameters,
-  correlations
-  ) {
+    variables,
+    events,
+    parameters,
+    correlations) {
   function(timestep) {
     in_age_group <- individual::Bitset$new(parameters$human_population)
     for (i in seq_along(parameters$mass_pev_min_ages)) {
@@ -101,7 +99,7 @@ create_mass_pev_listener <- function(
       target <- in_age_group$and(not_recently_vaccinated)
     }
 
-    #ignore those who are scheduled for EPI vaccination
+    # ignore those who are scheduled for EPI vaccination
     if (!is.null(events$pev_epi_doses)) {
       target <- target$and(
         events$pev_epi_doses[[1]]$get_scheduled()$not()
@@ -109,12 +107,12 @@ create_mass_pev_listener <- function(
     } else {
       target <- target$to_vector()
     }
-    
-    time_index = which(parameters$mass_pev_timesteps == timestep)
+
+    time_index <- which(parameters$mass_pev_timesteps == timestep)
     target <- target[
       sample_intervention(
         target,
-       'pev',
+        "pev",
         parameters$mass_pev_coverages[[time_index]],
         correlations
       )
@@ -142,11 +140,10 @@ create_mass_pev_listener <- function(
 #' @param dose_events a list of dose events to schedule
 #' @noRd
 schedule_vaccination <- function(
-  target,
-  events,
-  parameters,
-  dose_events
-  ) {
+    target,
+    events,
+    parameters,
+    dose_events) {
   if (length(target) > 0) {
     for (d in seq_along(parameters$pev_doses)) {
       dose_events[[d]]$schedule(target, parameters$pev_doses[[d]])
@@ -171,23 +168,45 @@ create_pev_efficacy_listener <- function(variables, pev_profile_index) {
   }
 }
 
+#' Updated booster listener with age cap functionality
 create_pev_booster_listener <- function(
-  variables,
-  coverage,
-  pev_distribution_timesteps,
-  booster_number,
-  pev_profile_index,
-  next_booster_event,
-  next_booster_delay,
-  renderer,
-  strategy
-  ) {
+    variables,
+    coverage,
+    pev_distribution_timesteps,
+    booster_number,
+    pev_profile_index,
+    next_booster_event,
+    next_booster_delay,
+    renderer,
+    strategy,
+    parameters = NULL # Add parameters to access age cap
+    ) {
   render_name <- paste0("n_pev_", strategy, "_booster_", booster_number)
   renderer$set_default(render_name, 0)
   force(next_booster_event) # because R lazy evaluation is rubbish
   force(next_booster_delay)
   force(coverage)
   function(timestep, target) {
+    # Apply age cap filter if specified for mass vaccination strategy
+    if (strategy == "mass" && !is.null(parameters) && !is.null(parameters$mass_pev_vaccine_max_age_cap)) {
+      # Filter out individuals who are older than the age cap
+      eligible_by_age <- variables$birth$get_index_of(
+        a = timestep - parameters$mass_pev_vaccine_max_age_cap, # born after this time (younger than age cap)
+        b = timestep # born before current time
+      )
+      target <- target$and(eligible_by_age)
+    }
+
+    # Apply age cap filter if specified for EPI strategy
+    if (strategy == "epi" && !is.null(parameters) && !is.null(parameters$pev_epi_vaccine_max_age_cap)) {
+      # Filter out individuals who are older than the age cap
+      eligible_by_age <- variables$birth$get_index_of(
+        a = timestep - parameters$pev_epi_vaccine_max_age_cap, # born after this time (younger than age cap)
+        b = timestep # born before current time
+      )
+      target <- target$and(eligible_by_age)
+    }
+
     cov_t <- coverage[
       match_timestep(pev_distribution_timesteps, timestep),
       booster_number
@@ -205,13 +224,12 @@ create_pev_booster_listener <- function(
 }
 
 calculate_pev_antibodies <- function(
-  t,
-  cs,
-  rho,
-  ds,
-  dl,
-  parameters
-  ) {
+    t,
+    cs,
+    rho,
+    ds,
+    dl,
+    parameters) {
   cs * (
     rho * exp(-t * log(2) / ds) + (
       1 - rho
@@ -222,29 +240,29 @@ calculate_pev_antibodies <- function(
 calculate_pev_efficacy <- function(antibodies, vmax, beta, alpha) {
   vmax * (
     1 - (1 / (
-      1 + (antibodies / beta) ** alpha
+      1 + (antibodies / beta)**alpha
     ))
   )
 }
 
 create_dosage_renderer <- function(renderer, strategy, dose) {
-  output_name <- paste0('n_pev_', strategy  ,'_dose_', dose)
+  output_name <- paste0("n_pev_", strategy, "_dose_", dose)
   renderer$set_default(output_name, 0)
   function(t, target) renderer$render(output_name, target$size(), t)
 }
 
+#' Updated attach_pev_dose_listeners to pass parameters to booster listeners
 attach_pev_dose_listeners <- function(
-  variables,
-  parameters,
-  pev_distribution_timesteps,
-  dose_events,
-  booster_events,
-  booster_delays,
-  booster_coverages,
-  pev_profile_indices,
-  strategy,
-  renderer
-  ) {
+    variables,
+    parameters,
+    pev_distribution_timesteps,
+    dose_events,
+    booster_events,
+    booster_delays,
+    booster_coverages,
+    pev_profile_indices,
+    strategy,
+    renderer) {
   # set up dosing
   for (d in seq_along(dose_events)) {
     dose_events[[d]]$add_listener(
@@ -276,7 +294,7 @@ attach_pev_dose_listeners <- function(
               parameters
             )
           )
-        } else  {
+        } else {
           dose_events[[d]]$add_listener(
             individual::reschedule_listener(
               booster_events[[1]],
@@ -310,17 +328,17 @@ attach_pev_dose_listeners <- function(
         next_booster_event = next_booster_event,
         next_booster_delay = next_booster_delay,
         renderer = renderer,
-        strategy = strategy
+        strategy = strategy,
+        parameters = parameters # Pass parameters to access age cap
       )
     )
   }
 }
 
 create_seasonal_booster_scheduler <- function(
-  booster_event,
-  booster_delay,
-  parameters
-  ) {
+    booster_event,
+    booster_delay,
+    parameters) {
   function(timestep, target) {
     delay <- booster_delay - timestep %% 365
     if (delay < 0) {

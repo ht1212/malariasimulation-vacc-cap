@@ -81,11 +81,12 @@ r21_booster_profile <- create_pev_profile(
   beta = 471,
   cs = c(9.2372858, 0.7188541),
   rho = c(0.07140337, 0.54175154),
-  ds = c(3.7996007, 0.1618982), 
+  ds = c(3.7996007, 0.1618982),
   dl = c(6.2820200, 0.4549185)
 )
 
-#' @title Parameterise a pre-erythrocytic vaccine with an EPI strategy
+# UPDATED
+#' @title Parameterise a pre-erythrocytic vaccine with an EPI strategy (UPDATED)
 #'
 #' @description distribute vaccine when an individual becomes a certain
 #' age. Efficacy will take effect after the last dose
@@ -106,31 +107,39 @@ r21_booster_profile <- create_pev_profile(
 #' @param booster_profile list of lists representing each booster profile, the outer list must be the same length as `booster_spacing`. Create vaccine profiles with `create_pev_profile`
 #' @param seasonal_boosters logical, if TRUE the first booster timestep is
 #' relative to the start of the year, otherwise they are relative to the last primary dose
+#' @param vaccine_max_age_cap the maximum age (in timesteps) at which an individual can receive booster doses. If NULL (default), no age cap is applied.
 #' @export
 set_pev_epi <- function(
-  parameters,
-  profile,
-  coverages,
-  timesteps,
-  age,
-  min_wait,
-  booster_spacing,
-  booster_coverage,
-  booster_profile,
-  seasonal_boosters = FALSE
-  ) {
+    parameters,
+    profile,
+    coverages,
+    timesteps,
+    age,
+    min_wait,
+    booster_spacing,
+    booster_coverage,
+    booster_profile,
+    seasonal_boosters = FALSE,
+    vaccine_max_age_cap = NULL) {
   stopifnot(all(coverages >= 0) && all(coverages <= 1))
   stopifnot(is.matrix(booster_coverage))
 
   # Check that the primary timing parameters make sense
-  if(length(coverages) != length(timesteps)){
+  if (length(coverages) != length(timesteps)) {
     stop("coverages and timesteps must align")
+  }
+
+  # Validate vaccine_max_age_cap if provided
+  if (!is.null(vaccine_max_age_cap)) {
+    stopifnot(is.numeric(vaccine_max_age_cap))
+    stopifnot(length(vaccine_max_age_cap) == 1)
+    stopifnot(vaccine_max_age_cap > 0)
   }
 
   # Check that booster_spacing are monotonically increasing
   if (length(booster_spacing) > 1) {
     if (!all(diff(booster_spacing) > 0)) {
-      stop('booster_spacing must be monotonically increasing')
+      stop("booster_spacing must be monotonically increasing")
     }
   }
 
@@ -139,7 +148,7 @@ set_pev_epi <- function(
   stopifnot(age >= 0)
   stopifnot(is.logical(seasonal_boosters))
   if (seasonal_boosters) {
-    if(booster_spacing[[1]] < 0) {
+    if (booster_spacing[[1]] < 0) {
       booster_spacing <- booster_spacing + 365
     }
   }
@@ -148,12 +157,12 @@ set_pev_epi <- function(
   stopifnot((length(booster_spacing) == 0) || all(booster_spacing > 0))
   stopifnot((length(booster_coverage)) == 0 || all(booster_coverage >= 0 & booster_coverage <= 1))
   if (!all(c(ncol(booster_coverage), length(booster_profile)) == length(booster_spacing))) {
-    stop('booster_spacing, booster_coverage and booster_profile do not align')
+    stop("booster_spacing, booster_coverage and booster_profile do not align")
   }
   # Check that booster_coverage and timesteps align
   if (length(booster_coverage) > 0) {
     if (nrow(booster_coverage) != length(timesteps)) {
-      stop('booster_coverage and timesteps do not align')
+      stop("booster_coverage and timesteps do not align")
     }
   }
 
@@ -172,9 +181,12 @@ set_pev_epi <- function(
   parameters$pev_epi_booster_coverage <- booster_coverage
   parameters$pev_epi_profile_indices <- profile_indices
   parameters$pev_epi_seasonal_boosters <- seasonal_boosters
+  parameters$pev_epi_vaccine_max_age_cap <- vaccine_max_age_cap # Store the age cap
   parameters
 }
 
+
+# UPDATED
 #' @title Parameterise a vaccine mass distribution strategy
 #'
 #' @description distribute pre-erythrocytic vaccine to a population in an age range.
@@ -192,19 +204,20 @@ set_pev_epi <- function(
 #' @param booster_spacing the timesteps (following the final primary dose) at which booster vaccinations are administered
 #' @param booster_coverage a matrix of coverages (timesteps x boosters) specifying the proportion the previously vaccinated population to continue receiving booster doses. The rows of the matrix must be the same size as `timesteps`. The columns of the matrix must be the same size as `booster_spacing`.
 #' @param booster_profile list of lists representing each booster profile, the outer list must be the same length as `booster_spacing`. Create vaccine profiles with `create_pev_profile`
+#' @param vaccine_max_age_cap the maximum age (in timesteps) at which an individual can receive booster doses. If NULL (default), no age cap is applied.
 #' @export
 set_mass_pev <- function(
-  parameters,
-  profile,
-  timesteps,
-  coverages,
-  min_ages,
-  max_ages,
-  min_wait,
-  booster_spacing,
-  booster_coverage,
-  booster_profile
-  ) {
+    parameters,
+    profile,
+    timesteps,
+    coverages,
+    min_ages,
+    max_ages,
+    min_wait,
+    booster_spacing,
+    booster_coverage,
+    booster_profile,
+    vaccine_max_age_cap = NULL) {
   stopifnot(all(timesteps >= 1))
   stopifnot(min_wait >= 0)
   stopifnot(all(coverages >= 0) && all(coverages <= 1))
@@ -212,24 +225,31 @@ set_mass_pev <- function(
   stopifnot(all(booster_spacing > 0))
   stopifnot(all(booster_coverage >= 0 & booster_coverage <= 1))
   if (length(min_ages) != length(max_ages)) {
-    stop('min and max ages do not align')
+    stop("min and max ages do not align")
+  }
+
+  # Validate vaccine_max_age_cap if provided
+  if (!is.null(vaccine_max_age_cap)) {
+    stopifnot(is.numeric(vaccine_max_age_cap))
+    stopifnot(length(vaccine_max_age_cap) == 1)
+    stopifnot(vaccine_max_age_cap > 0)
   }
 
   # Check that booster_spacing are monotonically increasing
   if (length(booster_spacing) > 1) {
     if (!all(diff(booster_spacing) > 0)) {
-      stop('booster_spacing must be monotonically increasing')
+      stop("booster_spacing must be monotonically increasing")
     }
   }
 
   stopifnot((length(booster_coverage)) == 0 || all(booster_coverage >= 0 & booster_coverage <= 1))
   if (!all(c(ncol(booster_coverage), length(booster_profile)) == length(booster_spacing))) {
-    stop('booster_spacing, booster_coverage and booster_profile do not align')
+    stop("booster_spacing, booster_coverage and booster_profile do not align")
   }
   # Check that booster_coverage and timesteps align
   if (length(booster_coverage) > 0) {
     if (nrow(booster_coverage) != length(timesteps)) {
-      stop('booster_coverage and timesteps do not align')
+      stop("booster_coverage and timesteps do not align")
     }
   }
 
@@ -248,5 +268,6 @@ set_mass_pev <- function(
   parameters$mass_pev_booster_spacing <- booster_spacing
   parameters$mass_pev_booster_coverage <- booster_coverage
   parameters$mass_pev_profile_indices <- profile_indices
+  parameters$mass_pev_vaccine_max_age_cap <- vaccine_max_age_cap # Store the age cap
   parameters
 }
